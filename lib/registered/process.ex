@@ -18,19 +18,32 @@ defmodule Registered.Process do
         use unquote(as), unquote(as_opts)
       end
 
-      if Kernel.macro_exported?(@as, :child_spec, 1) do
-        def child_spec(opts) do
-          as_opts = Keyword.put(unquote(as_opts), :name, name!(opts))
+      def child_spec(opts) do
+        as_opts = Keyword.put(unquote(as_opts), :name, name!(opts))
 
-          Supervisor.child_spec({@as, as_opts},
-            start: {__MODULE__, :start_link, [opts]},
-            id: {__MODULE__, Keyword.take(opts, unquote(unique))}
-          )
-        end
+        Supervisor.child_spec({@as, as_opts},
+          start: {__MODULE__, :start_link, [opts]},
+          id: {__MODULE__, Keyword.take(opts, unquote(unique))}
+        )
       end
 
-      def start_link(opts) do
-        @as.start_link(__MODULE__, opts, name: name!(opts))
+      cond do
+        Kernel.function_exported?(@as, :start_link, 3) ->
+          def start_link(opts) do
+            @as.start_link(__MODULE__, opts, name: name!(opts))
+          end
+
+        Kernel.function_exported?(@as, :start_link, 1) ->
+          def start_link(opts) do
+            opts
+            |> Keyword.put(:name, name!(opts))
+            |> @as.start_link()
+          end
+
+        true ->
+          def start_link(opts) do
+            {:error, {:not_defined, {:start_link, opts}}}
+          end
       end
 
       defoverridable(start_link: 1)

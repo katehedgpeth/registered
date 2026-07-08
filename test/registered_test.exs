@@ -1,8 +1,7 @@
 defmodule RegisteredTest do
-  use ExUnit.Case
-  doctest Registered
+  use ExUnit.Case, async: true
 
-  test "greets the world" do
-    assert Registered.hello() == :world
+  test "start_link saves the registry name to the process tree", _ctx do
+    assert Registered.Registry.get() == {:error, :not_found}
   end
 end

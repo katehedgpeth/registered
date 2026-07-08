@@ -34,5 +34,5 @@ defmodule Registered.IsolatedCase do
     :ok
   end
 
-  defp key(), do: Registered.Registry.key(__MODULE__)
+  def key(), do: Registered.Registry.key(__MODULE__)
 end

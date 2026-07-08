@@ -8,36 +8,66 @@ defmodule Registered.Process do
   end
 
   defmacro __using__(opts) do
-    {as, as_opts} = Keyword.fetch!(opts, :as)
-
+    {as, as_opts} = Keyword.get(opts, :as, {nil, []})
     unique = Keyword.get(opts, :unique, [])
+
+    type =
+      if as in [Supervisor, DynamicSupervisor, Task.Supervisor],
+        do: :supervisor,
+        else: Keyword.get(opts, :type, :worker)
 
     quote do
       @as unquote(as)
+      @as_opts unquote(as_opts)
+      @unique unquote(unique)
+
       if Kernel.macro_exported?(@as, :__using__, 1) do
         use unquote(as), unquote(as_opts)
       end
 
-      if Kernel.macro_exported?(@as, :child_spec, 1) do
-        def child_spec(opts) do
-          as_opts = Keyword.put(unquote(as_opts), :name, name!(opts))
+      def child_spec(opts) do
+        spec = [
+          id: name!(opts),
+          start: {__MODULE__, :start_link, [opts]}
+        ]
 
-          Supervisor.child_spec({@as, as_opts},
-            start: {__MODULE__, :start_link, [opts]},
-            id: {__MODULE__, Keyword.take(opts, unquote(unique))}
-          )
+        if Kernel.function_exported?(@as, :child_spec, 1) do
+          Supervisor.child_spec({@as, as_opts(opts)}, spec)
+        else
+          spec
+          |> Keyword.put(:type, unquote(type))
+          |> Map.new()
         end
       end
 
-      def start_link(opts) do
-        @as.start_link(__MODULE__, opts, name: name!(opts))
+      defoverridable(child_spec: 1)
+
+      if Kernel.function_exported?(@as, :start_link, 3) do
+        def start_link(opts) do
+          @as.start_link(__MODULE__, opts, as_opts(opts))
+        end
+      else
+        if Kernel.function_exported?(@as, :start_link, 1) do
+          def start_link(opts) do
+            opts
+            |> as_opts()
+            |> @as.start_link()
+          end
+        else
+          def start_link(opts) do
+            {:error, {:needs_override, __MODULE__}}
+          end
+        end
       end
 
       defoverridable(start_link: 1)
 
+      def as_opts(opts) do
+        Keyword.put(@as_opts, :name, name!(opts))
+      end
+
       def name!(opts) do
-        {:via, Registry,
-         {Registered.Registry.get!(), {__MODULE__, Keyword.take(opts, unquote(unique))}}}
+        {:via, Registry, {Registered.Registry.get!(), {__MODULE__, Keyword.take(opts, @unique)}}}
       end
 
       def whereis(opts) do
@@ -73,7 +103,7 @@ defmodule Registered.Process do
         def start_child!(spec, opts) when is_tuple(spec) or is_map(spec) do
           opts
           |> whereis!()
-          |> Supervisor.start_child(spec)
+          |> @as.start_child(spec)
         end
       end
 

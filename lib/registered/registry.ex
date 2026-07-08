@@ -9,38 +9,46 @@ defmodule Registered.Registry do
     end
   end
 
+  defp default(opts) do
+    opts
+    |> Keyword.fetch!(:otp_app)
+    |> Application.fetch_env!(Registered)
+    |> Keyword.fetch!(:registry_name)
+  end
+
   def child_spec(opts) do
+    opts =
+      Keyword.put_new_lazy(opts, :name, fn ->
+        get(default: default(opts))
+      end)
+
+    :ok = save!(opts)
+
     Supervisor.child_spec({Registry, opts}, start: {__MODULE__, :start_link, [opts]})
   end
 
-  def start_link(opts) do
-    name =
-      Keyword.get(opts, :name, get(default: __MODULE__))
-
+  def start_link(name: name) do
     with {:ok, pid} <- Registry.start_link(name: name, keys: :unique) do
-      :ok = save!(name)
+      :ok = save!(name: name)
       {:ok, pid}
     end
   end
 
-  def save!(name) do
+  defp save!(opts) do
+    name = Keyword.fetch!(opts, :name)
+
     if is_nil(name) or not is_atom(name) do
       raise "expected registry name to be an atom, got: #{inspect(name)}"
     end
 
-    pid = GenServer.whereis(name)
-
-    if is_nil(pid) do
-      raise "No process found with name #{inspect(name)}"
-    end
-
-    case get(as: :name) do
+    case get() do
       {:error, :not_found} ->
         nil = Process.put(key(), name)
 
-        Logger.debug(
-          "Registry saved to process #{inspect(self())}: #{inspect(name)} (pid: #{inspect(pid)})"
-        )
+        Logger.debug("Registry saved to process #{inspect(self())}: #{inspect(name)}")
+
+      {:ok, ^name} ->
+        :ok
 
       {:ok, other} ->
         raise AlreadyRegisteredError.exception(existing: other, name: name)
@@ -67,7 +75,5 @@ defmodule Registered.Registry do
     {__MODULE__, :name}
   end
 
-  if Mix.env() == :test do
-    def key(Registered.IsolatedCase), do: key()
-  end
+  def key(Registered.IsolatedCase), do: key()
 end
